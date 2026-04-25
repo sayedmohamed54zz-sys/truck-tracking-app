@@ -4,6 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Truck & Materials Tracking - Admin</title>
+  
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database.js"></script>
+  
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
     *{box-sizing:border-box;margin:0;padding:0}
@@ -187,6 +192,27 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
 <script>
+// ============ FIREBASE CONFIG ============
+const firebaseConfig = {
+  apiKey: "AIzaSyD6faVK6nS65kDGgSyOC1qqIlHqN5pVVxQ",
+  authDomain: "prime-petroleum-sayed-mohamed.firebaseapp.com",
+  databaseURL: "https://prime-petroleum-sayed-mohamed-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "prime-petroleum-sayed-mohamed",
+  storageBucket: "prime-petroleum-sayed-mohamed.firebasestorage.app",
+  messagingSenderId: "208315052991",
+  appId: "1:208315052991:web:e21626e84d8a26ddfe270a"
+};
+
+// Initialize Firebase
+let db;
+try {
+  const app = firebase.initializeApp(firebaseConfig);
+  db = firebase.database();
+  console.log('Firebase initialized successfully');
+} catch(e) {
+  console.log('Firebase not configured. Using localStorage only. Error:', e);
+}
+
 // ============ CONFIGURATION ============
 const ADMIN_USER = 'Admin';
 const ADMIN_PASS = '5050789';
@@ -228,6 +254,11 @@ function save(key, data) {
   try {
     localStorage.setItem(key, JSON.stringify(data));
     console.log('Saved to', key, data);
+    
+    // Also save to Firebase if configured
+    if (db) {
+      db.ref(key).set(data).catch(e => console.log('Firebase save error:', e));
+    }
     return true;
   } catch(e) {
     console.error('Save error:', e);
@@ -235,10 +266,50 @@ function save(key, data) {
   }
 }
 
-function initializeData() {
-  records = load(SK_RECORDS);
-  staff = load(SK_STAFF);
+function loadFromFirebase(key) {
+  return new Promise((resolve) => {
+    if (!db) {
+      resolve(load(key));
+      return;
+    }
+    
+    db.ref(key).once('value', (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        resolve(Array.isArray(data) ? data : []);
+      } else {
+        resolve(load(key));
+      }
+    }).catch(e => {
+      console.log('Firebase load error:', e);
+      resolve(load(key));
+    });
+  });
+}
+
+async function initializeData() {
+  records = await loadFromFirebase(SK_RECORDS);
+  staff = await loadFromFirebase(SK_STAFF);
   console.log('Initialized - Records:', records.length, 'Staff:', staff.length);
+  
+  // Listen for real-time updates from Firebase
+  if (db) {
+    db.ref(SK_RECORDS).on('value', (snapshot) => {
+      const data = snapshot.val();
+      if (data && Array.isArray(data)) {
+        records = data;
+        render();
+      }
+    });
+    
+    db.ref(SK_STAFF).on('value', (snapshot) => {
+      const data = snapshot.val();
+      if (data && Array.isArray(data)) {
+        staff = data;
+        render();
+      }
+    });
+  }
 }
 
 function toast(msg, isError = false) {
@@ -757,5 +828,4 @@ render();
 </script>
 
 </body>
-</html>
 </html>
