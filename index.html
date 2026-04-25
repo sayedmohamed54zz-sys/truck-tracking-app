@@ -658,26 +658,138 @@ function saveStaffMember() {
     const idx = staff.findIndex(s => s.id === editingStaffId);
     if (idx > -1) {
       staff[idx] = { ...staff[idx], name, username, password, role, permissions };
-      toast('Staff updated');
+      toast('Staff updated successfully');
     }
   } else {
+    // Check for duplicate username
+    if (staff.some(s => s.username === username)) {
+      toast('Username already exists', true);
+      return;
+    }
     staff.push({
       id: Date.now(),
-      name,
-      username,
-      password,
-      role,
-      permissions,
+      name, username, password, role, permissions,
       createdAt: new Date().toISOString()
     });
-    toast('Staff added successfully');
+    toast('New staff member added');
   }
-
+  
   save(SK_STAFF, staff);
   closeStaffModal();
-  editingStaffId = null;
-  activeTab = 'staff';
   render();
+}
+
+function handleRecordSave() {
+  const truckNo = fv('a-truck');
+  if (!truckNo) return toast('Truck number is required', true);
+
+  const g = fn('a-gross');
+  const t = fn('a-tare');
+  const net = (g !== null && t !== null) ? parseFloat((g - t).toFixed(3)) : null;
+
+  const data = {
+    id: editingId || Date.now(),
+    truckNo,
+    partyName: fv('a-party'),
+    loadType: fv('a-lotype'),
+    driverName: fv('a-dname'),
+    driverNo: fv('a-dno'),
+    date: fv('a-date') || new Date().toISOString().slice(0, 16),
+    ticketNo: fv('a-ticket'),
+    weighLoadType: fv('a-wlotype'),
+    igQty: fn('a-ig'),
+    material: fv('a-material'),
+    grossWeight: g,
+    tareWeight: t,
+    netWeight: net,
+    securityStatus: fv('a-sec'),
+    remarks: fv('a-remarks'),
+    updatedAt: new Date().toISOString(),
+    updatedBy: session.username
+  };
+
+  if (editingId) {
+    const idx = records.findIndex(r => r.id === editingId);
+    if (idx > -1) records[idx] = data;
+  } else {
+    records.push(data);
+  }
+
+  save(SK_RECORDS, records);
+  toast(editingId ? 'Record updated' : 'Record saved');
+  editingId = null;
+  activeTab = 'records';
+  render();
+}
+
+// ============ EVENT ATTACHMENT ============
+
+function attachEvents() {
+  // Login Logic
+  const loginBtn = document.getElementById('li-btn');
+  if (loginBtn) {
+    loginBtn.onclick = () => {
+      const u = fv('li-user'), p = fv('li-pass');
+      if (u === ADMIN_USER && p === ADMIN_PASS) {
+        session = { username: u, role: 'admin', name: 'Administrator' };
+        render();
+      } else {
+        const user = staff.find(s => s.username === u && s.password === p);
+        if (user) {
+          session = user;
+          render();
+        } else {
+          toast('Invalid credentials', true);
+        }
+      }
+    };
+  }
+
+  // Dashboard Tabs
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.onclick = () => {
+      activeTab = tab.dataset.tab;
+      if (activeTab !== 'form') editingId = null;
+      render();
+    };
+  });
+
+  // Record Actions
+  document.querySelectorAll('.record-edit-btn').forEach(btn => {
+    btn.onclick = () => {
+      editingId = parseInt(btn.dataset.recordId);
+      activeTab = 'form';
+      render();
+    };
+  });
+
+  // Staff Modal Controls
+  const addStaffBtn = document.getElementById('a-add-staff');
+  if (addStaffBtn) addStaffBtn.onclick = () => openStaffModal();
+  
+  const saveStaffBtn = document.getElementById('m-save');
+  if (saveStaffBtn) saveStaffBtn.onclick = saveStaffMember;
+
+  const cancelStaffBtn = document.getElementById('m-cancel');
+  if (cancelStaffBtn) cancelStaffBtn.onclick = closeStaffModal;
+
+  // Weight Calculation Logic
+  const gInput = document.getElementById('a-gross');
+  const tInput = document.getElementById('a-tare');
+  if (gInput && tInput) {
+    [gInput, tInput].forEach(el => el.oninput = () => {
+      const g = parseFloat(gInput.value) || 0;
+      const t = parseFloat(tInput.value) || 0;
+      const netDisplay = document.getElementById('a-net-display');
+      if (netDisplay) netDisplay.textContent = g && t ? (g - t).toFixed(2) : '—';
+    });
+  }
+
+  const saveRecBtn = document.getElementById('a-save');
+  if (saveRecBtn) saveRecBtn.onclick = handleRecordSave;
+
+  const logoutBtn = document.getElementById('logout-btn');
+  if (logoutBtn) logoutBtn.onclick = () => { session = null; render(); };
 }
 
 function saveAdminRecord() {
