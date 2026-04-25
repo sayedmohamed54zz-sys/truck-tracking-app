@@ -208,9 +208,10 @@ let db;
 try {
   const app = firebase.initializeApp(firebaseConfig);
   db = firebase.database();
-  console.log('Firebase initialized successfully');
+  console.log('Firebase initialized');
 } catch(e) {
-  console.log('Firebase not configured. Using localStorage only. Error:', e);
+  console.log('Firebase error:', e);
+  db = null;
 }
 
 // ============ CONFIGURATION ============
@@ -288,9 +289,38 @@ function loadFromFirebase(key) {
 }
 
 async function initializeData() {
-  records = await loadFromFirebase(SK_RECORDS);
-  staff = await loadFromFirebase(SK_STAFF);
+  try {
+    // Load from Firebase
+    if (db) {
+      const recordsSnapshot = await db.ref(SK_RECORDS).once('value');
+      const staffSnapshot = await db.ref(SK_STAFF).once('value');
+      
+      records = recordsSnapshot.val() ? Object.values(recordsSnapshot.val()) : [];
+      staff = staffSnapshot.val() ? Object.values(staffSnapshot.val()) : [];
+      
+      // Setup real-time listeners
+      db.ref(SK_RECORDS).on('value', (snapshot) => {
+        records = snapshot.val() ? Object.values(snapshot.val()) : [];
+        render();
+      });
+      
+      db.ref(SK_STAFF).on('value', (snapshot) => {
+        staff = snapshot.val() ? Object.values(snapshot.val()) : [];
+        render();
+      });
+    } else {
+      // Fallback to localStorage
+      records = load(SK_RECORDS);
+      staff = load(SK_STAFF);
+    }
+  } catch(e) {
+    console.error('Init error:', e);
+    records = load(SK_RECORDS);
+    staff = load(SK_STAFF);
+  }
+  
   console.log('Initialized - Records:', records.length, 'Staff:', staff.length);
+}
   
   // Listen for real-time updates from Firebase
   if (db) {
@@ -311,7 +341,43 @@ async function initializeData() {
     });
   }
 }
+  
+function save(key, data) {
+  try {
+    // Save to localStorage
+    localStorage.setItem(key, JSON.stringify(data));
+    console.log('Saved to localStorage:', key);
+    
+    // Save to Firebase
+    if (db && Array.isArray(data)) {
+      const firebaseData = {};
+      data.forEach((item, index) => {
+        firebaseData[item.id || index] = item;
+      });
+      db.ref(key).set(firebaseData).catch(e => {
+        console.log('Firebase save error:', e);
+      });
+    }
+    
+    return true;
+  } catch(e) {
+    console.error('Save error:', e);
+    return false;
+  }
+}
 
+  function load(key) {
+  try {
+    const s = localStorage.getItem(key);
+    if (s) {
+      return JSON.parse(s);
+    }
+  } catch(e) {
+    console.error('Load error:', e);
+  }
+  return [];
+}
+  
 function toast(msg, isError = false) {
   const t = document.getElementById('toast');
   t.textContent = msg;
