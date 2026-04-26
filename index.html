@@ -194,21 +194,20 @@
 <script>
 // ============ FIREBASE CONFIG ============
 const firebaseConfig = {
-  apiKey: "AIzaSyD6faVK6nS65kDGgSyOC1qqIlHqN5pVVxQ",
+  apiKey: "AIzaSyDmVp39KQvBRt2wEcKmJlJpL7h6MH8tW0k",
   authDomain: "prime-petroleum-sayed-mohamed.firebaseapp.com",
   databaseURL: "https://prime-petroleum-sayed-mohamed-default-rtdb.europe-west1.firebasedatabase.app",
   projectId: "prime-petroleum-sayed-mohamed",
-  storageBucket: "prime-petroleum-sayed-mohamed.firebasestorage.app",
-  messagingSenderId: "208315052991",
-  appId: "1:208315052991:web:e21626e84d8a26ddfe270a"
+  storageBucket: "prime-petroleum-sayed-mohamed.appspot.com",
+  messagingSenderId: "868532898476",
+  appId: "1:868532898476:web:0e7d5e32fb9c0c2e9876a5"
 };
 
-// Initialize Firebase
 let db;
 try {
   const app = firebase.initializeApp(firebaseConfig);
   db = firebase.database();
-  console.log('Firebase initialized');
+  console.log('Firebase initialized successfully');
 } catch(e) {
   console.log('Firebase error:', e);
   db = null;
@@ -253,97 +252,6 @@ function load(key) {
 
 function save(key, data) {
   try {
-    localStorage.setItem(key, JSON.stringify(data));
-    console.log('Saved to', key, data);
-    
-    // Also save to Firebase if configured
-    if (db) {
-      db.ref(key).set(data).catch(e => console.log('Firebase save error:', e));
-    }
-    return true;
-  } catch(e) {
-    console.error('Save error:', e);
-    return false;
-  }
-}
-
-function loadFromFirebase(key) {
-  return new Promise((resolve) => {
-    if (!db) {
-      resolve(load(key));
-      return;
-    }
-    
-    db.ref(key).once('value', (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        resolve(Array.isArray(data) ? data : []);
-      } else {
-        resolve(load(key));
-      }
-    }).catch(e => {
-      console.log('Firebase load error:', e);
-      resolve(load(key));
-    });
-  });
-}
-
-async function initializeData() {
-  try {
-    // Load from Firebase
-    if (db) {
-      const recordsSnapshot = await db.ref(SK_RECORDS).once('value');
-      const staffSnapshot = await db.ref(SK_STAFF).once('value');
-      
-      records = recordsSnapshot.val() ? Object.values(recordsSnapshot.val()) : [];
-      staff = staffSnapshot.val() ? Object.values(staffSnapshot.val()) : [];
-      
-      // Setup real-time listeners
-      db.ref(SK_RECORDS).on('value', (snapshot) => {
-        records = snapshot.val() ? Object.values(snapshot.val()) : [];
-        render();
-      });
-      
-      db.ref(SK_STAFF).on('value', (snapshot) => {
-        staff = snapshot.val() ? Object.values(snapshot.val()) : [];
-        render();
-      });
-    } else {
-      // Fallback to localStorage
-      records = load(SK_RECORDS);
-      staff = load(SK_STAFF);
-    }
-  } catch(e) {
-    console.error('Init error:', e);
-    records = load(SK_RECORDS);
-    staff = load(SK_STAFF);
-  }
-  
-  console.log('Initialized - Records:', records.length, 'Staff:', staff.length);
-}
-  
-  // Listen for real-time updates from Firebase
-  if (db) {
-    db.ref(SK_RECORDS).on('value', (snapshot) => {
-      const data = snapshot.val();
-      if (data && Array.isArray(data)) {
-        records = data;
-        render();
-      }
-    });
-    
-    db.ref(SK_STAFF).on('value', (snapshot) => {
-      const data = snapshot.val();
-      if (data && Array.isArray(data)) {
-        staff = data;
-        render();
-      }
-    });
-  }
-}
-  
-function save(key, data) {
-  try {
     // Save to localStorage
     localStorage.setItem(key, JSON.stringify(data));
     console.log('Saved to localStorage:', key);
@@ -351,8 +259,8 @@ function save(key, data) {
     // Save to Firebase
     if (db && Array.isArray(data)) {
       const firebaseData = {};
-      data.forEach((item, index) => {
-        firebaseData[item.id || index] = item;
+      data.forEach((item) => {
+        firebaseData[item.id || Date.now()] = item;
       });
       db.ref(key).set(firebaseData).catch(e => {
         console.log('Firebase save error:', e);
@@ -366,18 +274,44 @@ function save(key, data) {
   }
 }
 
-  function load(key) {
+async function initializeData() {
   try {
-    const s = localStorage.getItem(key);
-    if (s) {
-      return JSON.parse(s);
+    if (db) {
+      // Load from Firebase
+      const recordsSnapshot = await db.ref(SK_RECORDS).once('value');
+      const staffSnapshot = await db.ref(SK_STAFF).once('value');
+      
+      records = recordsSnapshot.val() ? Object.values(recordsSnapshot.val()) : [];
+      staff = staffSnapshot.val() ? Object.values(staffSnapshot.val()) : [];
+      
+      console.log('Loaded from Firebase - Records:', records.length, 'Staff:', staff.length);
+      
+      // Setup real-time listeners for records
+      db.ref(SK_RECORDS).on('value', (snapshot) => {
+        records = snapshot.val() ? Object.values(snapshot.val()) : [];
+        console.log('Records updated from Firebase:', records.length);
+        render();
+      });
+      
+      // Setup real-time listeners for staff
+      db.ref(SK_STAFF).on('value', (snapshot) => {
+        staff = snapshot.val() ? Object.values(snapshot.val()) : [];
+        console.log('Staff updated from Firebase:', staff.length);
+        render();
+      });
+    } else {
+      // Fallback to localStorage
+      records = load(SK_RECORDS);
+      staff = load(SK_STAFF);
+      console.log('Loaded from localStorage - Records:', records.length, 'Staff:', staff.length);
     }
   } catch(e) {
-    console.error('Load error:', e);
+    console.error('Init error:', e);
+    records = load(SK_RECORDS);
+    staff = load(SK_STAFF);
   }
-  return [];
 }
-  
+
 function toast(msg, isError = false) {
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -658,138 +592,26 @@ function saveStaffMember() {
     const idx = staff.findIndex(s => s.id === editingStaffId);
     if (idx > -1) {
       staff[idx] = { ...staff[idx], name, username, password, role, permissions };
-      toast('Staff updated successfully');
+      toast('Staff updated');
     }
   } else {
-    // Check for duplicate username
-    if (staff.some(s => s.username === username)) {
-      toast('Username already exists', true);
-      return;
-    }
     staff.push({
       id: Date.now(),
-      name, username, password, role, permissions,
+      name,
+      username,
+      password,
+      role,
+      permissions,
       createdAt: new Date().toISOString()
     });
-    toast('New staff member added');
+    toast('Staff added successfully');
   }
-  
+
   save(SK_STAFF, staff);
   closeStaffModal();
+  editingStaffId = null;
+  activeTab = 'staff';
   render();
-}
-
-function handleRecordSave() {
-  const truckNo = fv('a-truck');
-  if (!truckNo) return toast('Truck number is required', true);
-
-  const g = fn('a-gross');
-  const t = fn('a-tare');
-  const net = (g !== null && t !== null) ? parseFloat((g - t).toFixed(3)) : null;
-
-  const data = {
-    id: editingId || Date.now(),
-    truckNo,
-    partyName: fv('a-party'),
-    loadType: fv('a-lotype'),
-    driverName: fv('a-dname'),
-    driverNo: fv('a-dno'),
-    date: fv('a-date') || new Date().toISOString().slice(0, 16),
-    ticketNo: fv('a-ticket'),
-    weighLoadType: fv('a-wlotype'),
-    igQty: fn('a-ig'),
-    material: fv('a-material'),
-    grossWeight: g,
-    tareWeight: t,
-    netWeight: net,
-    securityStatus: fv('a-sec'),
-    remarks: fv('a-remarks'),
-    updatedAt: new Date().toISOString(),
-    updatedBy: session.username
-  };
-
-  if (editingId) {
-    const idx = records.findIndex(r => r.id === editingId);
-    if (idx > -1) records[idx] = data;
-  } else {
-    records.push(data);
-  }
-
-  save(SK_RECORDS, records);
-  toast(editingId ? 'Record updated' : 'Record saved');
-  editingId = null;
-  activeTab = 'records';
-  render();
-}
-
-// ============ EVENT ATTACHMENT ============
-
-function attachEvents() {
-  // Login Logic
-  const loginBtn = document.getElementById('li-btn');
-  if (loginBtn) {
-    loginBtn.onclick = () => {
-      const u = fv('li-user'), p = fv('li-pass');
-      if (u === ADMIN_USER && p === ADMIN_PASS) {
-        session = { username: u, role: 'admin', name: 'Administrator' };
-        render();
-      } else {
-        const user = staff.find(s => s.username === u && s.password === p);
-        if (user) {
-          session = user;
-          render();
-        } else {
-          toast('Invalid credentials', true);
-        }
-      }
-    };
-  }
-
-  // Dashboard Tabs
-  document.querySelectorAll('.tab').forEach(tab => {
-    tab.onclick = () => {
-      activeTab = tab.dataset.tab;
-      if (activeTab !== 'form') editingId = null;
-      render();
-    };
-  });
-
-  // Record Actions
-  document.querySelectorAll('.record-edit-btn').forEach(btn => {
-    btn.onclick = () => {
-      editingId = parseInt(btn.dataset.recordId);
-      activeTab = 'form';
-      render();
-    };
-  });
-
-  // Staff Modal Controls
-  const addStaffBtn = document.getElementById('a-add-staff');
-  if (addStaffBtn) addStaffBtn.onclick = () => openStaffModal();
-  
-  const saveStaffBtn = document.getElementById('m-save');
-  if (saveStaffBtn) saveStaffBtn.onclick = saveStaffMember;
-
-  const cancelStaffBtn = document.getElementById('m-cancel');
-  if (cancelStaffBtn) cancelStaffBtn.onclick = closeStaffModal;
-
-  // Weight Calculation Logic
-  const gInput = document.getElementById('a-gross');
-  const tInput = document.getElementById('a-tare');
-  if (gInput && tInput) {
-    [gInput, tInput].forEach(el => el.oninput = () => {
-      const g = parseFloat(gInput.value) || 0;
-      const t = parseFloat(tInput.value) || 0;
-      const netDisplay = document.getElementById('a-net-display');
-      if (netDisplay) netDisplay.textContent = g && t ? (g - t).toFixed(2) : '—';
-    });
-  }
-
-  const saveRecBtn = document.getElementById('a-save');
-  if (saveRecBtn) saveRecBtn.onclick = handleRecordSave;
-
-  const logoutBtn = document.getElementById('logout-btn');
-  if (logoutBtn) logoutBtn.onclick = () => { session = null; render(); };
 }
 
 function saveAdminRecord() {
@@ -862,7 +684,6 @@ function doLogin() {
 
   console.log('Login attempt:', u);
 
-  // Check if user is admin
   if (u === ADMIN_USER && p === ADMIN_PASS) {
     session = { user: u, role: 'admin', name: 'Administrator', loginTime: new Date().toISOString() };
     console.log('Admin login success');
@@ -871,7 +692,6 @@ function doLogin() {
     return;
   }
 
-  // Check if user is in staff list
   const staffMember = staff.find(s => s.username === u && s.password === p);
   if (staffMember) {
     session = { user: u, role: staffMember.role, name: staffMember.name, loginTime: new Date().toISOString() };
@@ -881,7 +701,6 @@ function doLogin() {
     return;
   }
 
-  // Login failed
   console.log('Login failed');
   toast('Invalid credentials or user not found', true);
 }
@@ -903,13 +722,11 @@ function attachEvents() {
   on('m-cancel', 'click', closeStaffModal);
 
   if (session) {
-    // Tab navigation
     document.querySelectorAll('.tab[data-tab]').forEach(btn => {
       btn.removeEventListener('click', handleTabClick);
       btn.addEventListener('click', handleTabClick);
     });
 
-    // Record management
     on('a-add', 'click', () => { editingId = null; activeTab = 'form'; render(); });
     on('a-save', 'click', saveAdminRecord);
     on('a-cancel', 'click', () => { editingId = null; activeTab = 'records'; render(); });
@@ -927,11 +744,9 @@ function attachEvents() {
     on('a-gross', 'input', () => calcNet('a-gross', 'a-tare', 'a-net-display'));
     on('a-tare', 'input', () => calcNet('a-gross', 'a-tare', 'a-net-display'));
 
-    // Staff management (admin only)
     on('a-add-staff', 'click', () => openStaffModal());
     on('m-save', 'click', saveStaffMember);
 
-    // Record edit/delete buttons
     document.querySelectorAll('.record-edit-btn').forEach(btn =>
       btn.removeEventListener('click', handleRecordEdit)
     );
@@ -946,7 +761,6 @@ function attachEvents() {
       btn.addEventListener('click', handleRecordDelete)
     );
 
-    // Staff edit/delete buttons
     document.querySelectorAll('.staff-edit-btn').forEach(btn =>
       btn.removeEventListener('click', handleStaffEdit)
     );
