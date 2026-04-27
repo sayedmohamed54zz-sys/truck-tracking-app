@@ -212,7 +212,7 @@ try {
   firebaseReady = true;
   console.log('✅ Firebase initialized');
 } catch(e) {
-  console.log('⚠️ Firebase error:', e);
+  console.log('⚠️ Firebase init error:', e);
 }
 
 // ============ CONFIGURATION ============
@@ -237,38 +237,48 @@ let session = null;
 let activeTab = 'records';
 let editingId = null;
 let editingStaffId = null;
-let listenersSetup = false;
+let listenersActive = false;
 
-// ============ STORAGE - LOCALSTORAGE ONLY ============
-function load(key) {
+// ============ LOAD FROM LOCALSTORAGE ============
+function loadLocal(key) {
   try {
-    const s = localStorage.getItem(key);
-    if (s) {
-      return JSON.parse(s);
+    const data = localStorage.getItem(key);
+    if (data) {
+      return JSON.parse(data);
     }
   } catch(e) {
-    console.error('Load error:', e);
+    console.error('LocalStorage load error:', e);
   }
   return [];
 }
 
-function save(key, data) {
+// ============ SAVE TO FIREBASE AND LOCALSTORAGE ============
+function saveToFirebase(key, data) {
   try {
+    // Save to localStorage first (guaranteed)
     localStorage.setItem(key, JSON.stringify(data));
     console.log('✅ Saved to localStorage:', key);
-    
+
+    // Save to Firebase
     if (firebaseReady && db) {
-      const firebaseData = {};
-      data.forEach((item, idx) => {
-        firebaseData[item.id || idx] = item;
-      });
-      db.ref(key).set(firebaseData).then(() => {
-        console.log('✅ Synced to Firebase:', key);
-      }).catch(e => {
-        console.log('⚠️ Firebase sync error:', e);
+      const fbData = {};
+      if (Array.isArray(data)) {
+        data.forEach((item, idx) => {
+          fbData[item.id || `item_${idx}`] = {
+            id: item.id,
+            ...item
+          };
+        });
+      }
+      
+      db.ref(key).set(fbData, (error) => {
+        if (error) {
+          console.log('⚠️ Firebase save error:', error);
+        } else {
+          console.log('✅ Synced to Firebase:', key);
+        }
       });
     }
-    
     return true;
   } catch(e) {
     console.error('Save error:', e);
@@ -276,44 +286,63 @@ function save(key, data) {
   }
 }
 
-function setupListeners() {
-  if (listenersSetup || !firebaseReady || !db) return;
-  
+// ============ SETUP FIREBASE LISTENERS ============
+function setupFirebaseListeners() {
+  if (listenersActive || !firebaseReady || !db) {
+    console.log('⚠️ Cannot setup listeners - Firebase not ready');
+    return;
+  }
+
   console.log('📡 Setting up Firebase listeners...');
-  
+
+  // Listen to Records changes
   db.ref(SK_RECORDS).on('value', (snapshot) => {
     const data = snapshot.val();
-    if (data) {
-      records = Object.values(data);
+    console.log('📥 Firebase records data:', data);
+    
+    if (data && typeof data === 'object') {
+      records = Object.values(data).filter(item => item !== null);
       localStorage.setItem(SK_RECORDS, JSON.stringify(records));
-      console.log('📥 Records synced:', records.length);
+      console.log('✅ Records synced from Firebase:', records.length);
       render();
     }
   }, (error) => {
-    console.log('⚠️ Records listener error:', error);
+    console.log('⚠️ Records listener error:', error.code, error.message);
   });
-  
+
+  // Listen to Staff changes
   db.ref(SK_STAFF).on('value', (snapshot) => {
     const data = snapshot.val();
-    if (data) {
-      staff = Object.values(data);
+    console.log('📥 Firebase staff data:', data);
+    
+    if (data && typeof data === 'object') {
+      staff = Object.values(data).filter(item => item !== null);
       localStorage.setItem(SK_STAFF, JSON.stringify(staff));
-      console.log('📥 Staff synced:', staff.length);
+      console.log('✅ Staff synced from Firebase:', staff.length);
       render();
     }
   }, (error) => {
-    console.log('⚠️ Staff listener error:', error);
+    console.log('⚠️ Staff listener error:', error.code, error.message);
   });
-  
-  listenersSetup = true;
+
+  listenersActive = true;
 }
 
-function initializeData() {
-  records = load(SK_RECORDS);
-  staff = load(SK_STAFF);
-  console.log('📂 Loaded - Records:', records.length, 'Staff:', staff.length);
+// ============ INITIALIZE APP ============
+function initializeApp() {
+  // Load from localStorage
+  records = loadLocal(SK_RECORDS);
+  staff = loadLocal(SK_STAFF);
   
-  setupListeners();
+  console.log('📂 Loaded from localStorage - Records:', records.length, 'Staff:', staff.length);
+
+  // Setup Firebase listeners
+  setTimeout(() => {
+    setupFirebaseListeners();
+  }, 500);
+
+  // Render initial UI
+  render();
 }
 
 function toast(msg, isError = false) {
@@ -600,7 +629,7 @@ function saveStaffMember() {
       toast('Staff updated');
     }
   } else {
-    staff.push({
+    const newStaff = {
       id: Date.now(),
       name,
       username,
@@ -608,11 +637,13 @@ function saveStaffMember() {
       role,
       permissions,
       createdAt: new Date().toISOString()
-    });
+    };
+    staff.push(newStaff);
     toast('Staff added successfully');
+    console.log('➕ New staff added:', newStaff);
   }
 
-  save(SK_STAFF, staff);
+  saveToFirebase(SK_STAFF, staff);
   closeStaffModal();
   editingStaffId = null;
   activeTab = 'staff';
@@ -654,7 +685,7 @@ function saveAdminRecord() {
     toast('Record added');
   }
 
-  save(SK_RECORDS, records);
+  saveToFirebase(SK_RECORDS, records);
   editingId = null;
   activeTab = 'records';
   render();
@@ -687,8 +718,11 @@ function doLogin() {
   const u = (document.getElementById('li-user')?.value || '').trim();
   const p = document.getElementById('li-pass')?.value || '';
 
+  console.log('🔐 Login attempt:', u);
+
   if (u === ADMIN_USER && p === ADMIN_PASS) {
     session = { user: u, role: 'admin', name: 'Administrator', loginTime: new Date().toISOString() };
+    console.log('✅ Admin login success');
     toast('Welcome Admin');
     render();
     return;
@@ -697,11 +731,13 @@ function doLogin() {
   const staffMember = staff.find(s => s.username === u && s.password === p);
   if (staffMember) {
     session = { user: u, role: staffMember.role, name: staffMember.name, loginTime: new Date().toISOString() };
+    console.log('✅ Staff login success:', staffMember.name);
     toast(`Welcome ${staffMember.name}`);
     render();
     return;
   }
 
+  console.log('❌ Login failed - user not found');
   toast('Invalid credentials or user not found', true);
 }
 
@@ -731,7 +767,7 @@ function attachEvents() {
     on('a-delete', 'click', () => {
       if (editingId && confirm('Delete this record?')) {
         records = records.filter(r => r.id !== editingId);
-        save(SK_RECORDS, records);
+        saveToFirebase(SK_RECORDS, records);
         editingId = null;
         activeTab = 'records';
         render();
@@ -791,7 +827,7 @@ function handleRecordDelete() {
   const recordId = parseInt(this.getAttribute('data-record-id'));
   if (confirm('Delete this record?')) {
     records = records.filter(r => r.id !== recordId);
-    save(SK_RECORDS, records);
+    saveToFirebase(SK_RECORDS, records);
     render();
     toast('Deleted');
   }
@@ -806,15 +842,14 @@ function handleStaffDelete() {
   const staffId = parseInt(this.getAttribute('data-staff-id'));
   if (confirm('Delete this staff member?')) {
     staff = staff.filter(s => s.id !== staffId);
-    save(SK_STAFF, staff);
+    saveToFirebase(SK_STAFF, staff);
     render();
     toast('Staff deleted');
   }
 }
 
-// ============ INITIALIZE ============
-initializeData();
-render();
+// ============ START APP ============
+initializeApp();
 </script>
 
 </body>
