@@ -163,7 +163,7 @@
 </head>
 <body>
 
-<div style="background:var(--dark);min-height:600px" id="app"></div>
+<div style="background:var(--dark);min-height:600px" id="app"><div style="text-align:center;padding:40px;color:var(--gold-light)">جاري التحميل...</div></div>
 <div class="toast" id="toast"></div>
 <div class="modal" id="staffModal">
   <div class="modal-content">
@@ -203,14 +203,16 @@ const firebaseConfig = {
   appId: "1:868532898476:web:0e7d5e32fb9c0c2e9876a5"
 };
 
-let db;
+let db = null;
+let firebaseReady = false;
+
 try {
   const app = firebase.initializeApp(firebaseConfig);
   db = firebase.database();
-  console.log('Firebase initialized successfully');
+  firebaseReady = true;
+  console.log('✅ Firebase initialized');
 } catch(e) {
-  console.log('Firebase error:', e);
-  db = null;
+  console.log('⚠️ Firebase error:', e);
 }
 
 // ============ CONFIGURATION ============
@@ -228,7 +230,6 @@ const PERMISSIONS = [
 
 const SK_RECORDS = 'mtd_records_v1';
 const SK_STAFF = 'mtd_staff_v1';
-const SK_SESSION = 'mtd_session_v1';
 
 let records = [];
 let staff = [];
@@ -236,8 +237,9 @@ let session = null;
 let activeTab = 'records';
 let editingId = null;
 let editingStaffId = null;
+let listenersSetup = false;
 
-// ============ STORAGE FUNCTIONS ============
+// ============ STORAGE - LOCALSTORAGE ONLY ============
 function load(key) {
   try {
     const s = localStorage.getItem(key);
@@ -252,18 +254,18 @@ function load(key) {
 
 function save(key, data) {
   try {
-    // Save to localStorage
     localStorage.setItem(key, JSON.stringify(data));
-    console.log('Saved to localStorage:', key);
+    console.log('✅ Saved to localStorage:', key);
     
-    // Save to Firebase
-    if (db && Array.isArray(data)) {
+    if (firebaseReady && db) {
       const firebaseData = {};
-      data.forEach((item) => {
-        firebaseData[item.id || Date.now()] = item;
+      data.forEach((item, idx) => {
+        firebaseData[item.id || idx] = item;
       });
-      db.ref(key).set(firebaseData).catch(e => {
-        console.log('Firebase save error:', e);
+      db.ref(key).set(firebaseData).then(() => {
+        console.log('✅ Synced to Firebase:', key);
+      }).catch(e => {
+        console.log('⚠️ Firebase sync error:', e);
       });
     }
     
@@ -274,46 +276,49 @@ function save(key, data) {
   }
 }
 
-async function initializeData() {
-  try {
-    if (db) {
-      // Load from Firebase
-      const recordsSnapshot = await db.ref(SK_RECORDS).once('value');
-      const staffSnapshot = await db.ref(SK_STAFF).once('value');
-      
-      records = recordsSnapshot.val() ? Object.values(recordsSnapshot.val()) : [];
-      staff = staffSnapshot.val() ? Object.values(staffSnapshot.val()) : [];
-      
-      console.log('Loaded from Firebase - Records:', records.length, 'Staff:', staff.length);
-      
-      // Setup real-time listeners for records
-      db.ref(SK_RECORDS).on('value', (snapshot) => {
-        records = snapshot.val() ? Object.values(snapshot.val()) : [];
-        console.log('Records updated from Firebase:', records.length);
-        render();
-      });
-      
-      // Setup real-time listeners for staff
-      db.ref(SK_STAFF).on('value', (snapshot) => {
-        staff = snapshot.val() ? Object.values(snapshot.val()) : [];
-        console.log('Staff updated from Firebase:', staff.length);
-        render();
-      });
-    } else {
-      // Fallback to localStorage
-      records = load(SK_RECORDS);
-      staff = load(SK_STAFF);
-      console.log('Loaded from localStorage - Records:', records.length, 'Staff:', staff.length);
+function setupListeners() {
+  if (listenersSetup || !firebaseReady || !db) return;
+  
+  console.log('📡 Setting up Firebase listeners...');
+  
+  db.ref(SK_RECORDS).on('value', (snapshot) => {
+    const data = snapshot.val();
+    if (data) {
+      records = Object.values(data);
+      localStorage.setItem(SK_RECORDS, JSON.stringify(records));
+      console.log('📥 Records synced:', records.length);
+      render();
     }
-  } catch(e) {
-    console.error('Init error:', e);
-    records = load(SK_RECORDS);
-    staff = load(SK_STAFF);
-  }
+  }, (error) => {
+    console.log('⚠️ Records listener error:', error);
+  });
+  
+  db.ref(SK_STAFF).on('value', (snapshot) => {
+    const data = snapshot.val();
+    if (data) {
+      staff = Object.values(data);
+      localStorage.setItem(SK_STAFF, JSON.stringify(staff));
+      console.log('📥 Staff synced:', staff.length);
+      render();
+    }
+  }, (error) => {
+    console.log('⚠️ Staff listener error:', error);
+  });
+  
+  listenersSetup = true;
+}
+
+function initializeData() {
+  records = load(SK_RECORDS);
+  staff = load(SK_STAFF);
+  console.log('📂 Loaded - Records:', records.length, 'Staff:', staff.length);
+  
+  setupListeners();
 }
 
 function toast(msg, isError = false) {
   const t = document.getElementById('toast');
+  if (!t) return;
   t.textContent = msg;
   t.className = 'toast ' + (isError ? 'error' : 'success');
   t.classList.add('show');
@@ -682,11 +687,8 @@ function doLogin() {
   const u = (document.getElementById('li-user')?.value || '').trim();
   const p = document.getElementById('li-pass')?.value || '';
 
-  console.log('Login attempt:', u);
-
   if (u === ADMIN_USER && p === ADMIN_PASS) {
     session = { user: u, role: 'admin', name: 'Administrator', loginTime: new Date().toISOString() };
-    console.log('Admin login success');
     toast('Welcome Admin');
     render();
     return;
@@ -695,19 +697,15 @@ function doLogin() {
   const staffMember = staff.find(s => s.username === u && s.password === p);
   if (staffMember) {
     session = { user: u, role: staffMember.role, name: staffMember.name, loginTime: new Date().toISOString() };
-    console.log('Staff login success:', staffMember.name);
     toast(`Welcome ${staffMember.name}`);
     render();
     return;
   }
 
-  console.log('Login failed');
   toast('Invalid credentials or user not found', true);
 }
 
 function attachEvents() {
-  console.log('Attaching events...');
-  
   const on = (id, ev, fn) => {
     const el = document.getElementById(id);
     if (el) {
