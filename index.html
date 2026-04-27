@@ -67,26 +67,10 @@
     .btn-amber:hover{background:rgba(239,159,39,0.25)}
     .btn:disabled{opacity:0.5;cursor:not-allowed}
 
-    .glass-card{
-      background:var(--glass);
-      border:1px solid var(--glass-border);
-      border-radius:14px;
-      padding:22px 24px;
-      backdrop-filter:blur(10px);
-    }
-    .glass-panel{
-      background:rgba(255,255,255,0.03);
-      border:1px solid rgba(201,168,76,0.12);
-      border-radius:10px;
-      padding:14px 16px;
-    }
+    .glass-card{background:var(--glass);border:1px solid var(--glass-border);border-radius:14px;padding:22px 24px;backdrop-filter:blur(10px)}
+    .glass-panel{background:rgba(255,255,255,0.03);border:1px solid rgba(201,168,76,0.12);border-radius:10px;padding:14px 16px}
 
-    .header{
-      background:rgba(13,17,23,0.95);
-      border-bottom:1px solid var(--glass-border);
-      padding:14px 22px;
-      display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
-    }
+    .header{background:rgba(13,17,23,0.95);border-bottom:1px solid var(--glass-border);padding:14px 22px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
     .logo-box{width:38px;height:38px;background:linear-gradient(135deg,#C9A84C,#8B6914);border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 
     .page{max-width:1280px;margin:0 auto;padding:20px 18px}
@@ -210,9 +194,9 @@ try {
   const app = firebase.initializeApp(firebaseConfig);
   db = firebase.database();
   firebaseReady = true;
-  console.log('✅ Firebase initialized');
+  console.log('✅ Firebase Ready');
 } catch(e) {
-  console.log('⚠️ Firebase init error:', e);
+  console.log('⚠️ Firebase Error:', e);
 }
 
 // ============ CONFIGURATION ============
@@ -237,46 +221,36 @@ let session = null;
 let activeTab = 'records';
 let editingId = null;
 let editingStaffId = null;
-let listenersActive = false;
+let listenersSetup = false;
 
 // ============ LOAD FROM LOCALSTORAGE ============
-function loadLocal(key) {
+function load(key) {
   try {
-    const data = localStorage.getItem(key);
-    if (data) {
-      return JSON.parse(data);
+    const s = localStorage.getItem(key);
+    if (s) {
+      return JSON.parse(s);
     }
   } catch(e) {
-    console.error('LocalStorage load error:', e);
+    console.error('Load error:', e);
   }
   return [];
 }
 
 // ============ SAVE TO FIREBASE AND LOCALSTORAGE ============
-function saveToFirebase(key, data) {
+function save(key, data) {
   try {
-    // Save to localStorage first (guaranteed)
     localStorage.setItem(key, JSON.stringify(data));
-    console.log('✅ Saved to localStorage:', key);
+    console.log('✅ Saved to localStorage:', key, data.length, 'items');
 
-    // Save to Firebase
     if (firebaseReady && db) {
-      const fbData = {};
-      if (Array.isArray(data)) {
-        data.forEach((item, idx) => {
-          fbData[item.id || `item_${idx}`] = {
-            id: item.id,
-            ...item
-          };
-        });
-      }
-      
-      db.ref(key).set(fbData, (error) => {
-        if (error) {
-          console.log('⚠️ Firebase save error:', error);
-        } else {
-          console.log('✅ Synced to Firebase:', key);
-        }
+      const firebaseData = {};
+      data.forEach((item, idx) => {
+        firebaseData[item.id || idx] = item;
+      });
+      db.ref(key).set(firebaseData).then(() => {
+        console.log('✅ Synced to Firebase:', key);
+      }).catch(e => {
+        console.log('⚠️ Firebase sync error:', e);
       });
     }
     return true;
@@ -287,62 +261,43 @@ function saveToFirebase(key, data) {
 }
 
 // ============ SETUP FIREBASE LISTENERS ============
-function setupFirebaseListeners() {
-  if (listenersActive || !firebaseReady || !db) {
-    console.log('⚠️ Cannot setup listeners - Firebase not ready');
-    return;
-  }
-
+function setupListeners() {
+  if (listenersSetup || !firebaseReady || !db) return;
+  
   console.log('📡 Setting up Firebase listeners...');
-
-  // Listen to Records changes
+  
   db.ref(SK_RECORDS).on('value', (snapshot) => {
-    const data = snapshot.val();
-    console.log('📥 Firebase records data:', data);
-    
-    if (data && typeof data === 'object') {
-      records = Object.values(data).filter(item => item !== null);
+    if (snapshot.val()) {
+      records = Object.values(snapshot.val());
       localStorage.setItem(SK_RECORDS, JSON.stringify(records));
-      console.log('✅ Records synced from Firebase:', records.length);
+      console.log('📥 Records synced:', records.length);
       render();
     }
   }, (error) => {
-    console.log('⚠️ Records listener error:', error.code, error.message);
+    console.log('⚠️ Records listener error:', error);
   });
 
-  // Listen to Staff changes
   db.ref(SK_STAFF).on('value', (snapshot) => {
-    const data = snapshot.val();
-    console.log('📥 Firebase staff data:', data);
-    
-    if (data && typeof data === 'object') {
-      staff = Object.values(data).filter(item => item !== null);
+    if (snapshot.val()) {
+      staff = Object.values(snapshot.val());
       localStorage.setItem(SK_STAFF, JSON.stringify(staff));
-      console.log('✅ Staff synced from Firebase:', staff.length);
+      console.log('📥 Staff synced:', staff.length);
       render();
     }
   }, (error) => {
-    console.log('⚠️ Staff listener error:', error.code, error.message);
+    console.log('⚠️ Staff listener error:', error);
   });
 
-  listenersActive = true;
+  listenersSetup = true;
 }
 
-// ============ INITIALIZE APP ============
-function initializeApp() {
-  // Load from localStorage
-  records = loadLocal(SK_RECORDS);
-  staff = loadLocal(SK_STAFF);
+// ============ INITIALIZE DATA ============
+function initializeData() {
+  records = load(SK_RECORDS);
+  staff = load(SK_STAFF);
+  console.log('📂 Loaded - Records:', records.length, 'Staff:', staff.length);
   
-  console.log('📂 Loaded from localStorage - Records:', records.length, 'Staff:', staff.length);
-
-  // Setup Firebase listeners
-  setTimeout(() => {
-    setupFirebaseListeners();
-  }, 500);
-
-  // Render initial UI
-  render();
+  setupListeners();
 }
 
 function toast(msg, isError = false) {
@@ -629,7 +584,7 @@ function saveStaffMember() {
       toast('Staff updated');
     }
   } else {
-    const newStaff = {
+    staff.push({
       id: Date.now(),
       name,
       username,
@@ -637,13 +592,11 @@ function saveStaffMember() {
       role,
       permissions,
       createdAt: new Date().toISOString()
-    };
-    staff.push(newStaff);
+    });
     toast('Staff added successfully');
-    console.log('➕ New staff added:', newStaff);
   }
 
-  saveToFirebase(SK_STAFF, staff);
+  save(SK_STAFF, staff);
   closeStaffModal();
   editingStaffId = null;
   activeTab = 'staff';
@@ -685,7 +638,7 @@ function saveAdminRecord() {
     toast('Record added');
   }
 
-  saveToFirebase(SK_RECORDS, records);
+  save(SK_RECORDS, records);
   editingId = null;
   activeTab = 'records';
   render();
@@ -718,11 +671,8 @@ function doLogin() {
   const u = (document.getElementById('li-user')?.value || '').trim();
   const p = document.getElementById('li-pass')?.value || '';
 
-  console.log('🔐 Login attempt:', u);
-
   if (u === ADMIN_USER && p === ADMIN_PASS) {
     session = { user: u, role: 'admin', name: 'Administrator', loginTime: new Date().toISOString() };
-    console.log('✅ Admin login success');
     toast('Welcome Admin');
     render();
     return;
@@ -731,13 +681,11 @@ function doLogin() {
   const staffMember = staff.find(s => s.username === u && s.password === p);
   if (staffMember) {
     session = { user: u, role: staffMember.role, name: staffMember.name, loginTime: new Date().toISOString() };
-    console.log('✅ Staff login success:', staffMember.name);
     toast(`Welcome ${staffMember.name}`);
     render();
     return;
   }
 
-  console.log('❌ Login failed - user not found');
   toast('Invalid credentials or user not found', true);
 }
 
@@ -767,7 +715,7 @@ function attachEvents() {
     on('a-delete', 'click', () => {
       if (editingId && confirm('Delete this record?')) {
         records = records.filter(r => r.id !== editingId);
-        saveToFirebase(SK_RECORDS, records);
+        save(SK_RECORDS, records);
         editingId = null;
         activeTab = 'records';
         render();
@@ -827,7 +775,7 @@ function handleRecordDelete() {
   const recordId = parseInt(this.getAttribute('data-record-id'));
   if (confirm('Delete this record?')) {
     records = records.filter(r => r.id !== recordId);
-    saveToFirebase(SK_RECORDS, records);
+    save(SK_RECORDS, records);
     render();
     toast('Deleted');
   }
@@ -842,14 +790,15 @@ function handleStaffDelete() {
   const staffId = parseInt(this.getAttribute('data-staff-id'));
   if (confirm('Delete this staff member?')) {
     staff = staff.filter(s => s.id !== staffId);
-    saveToFirebase(SK_STAFF, staff);
+    save(SK_STAFF, staff);
     render();
     toast('Staff deleted');
   }
 }
 
-// ============ START APP ============
-initializeApp();
+// ============ INITIALIZE ============
+initializeData();
+render();
 </script>
 
 </body>
